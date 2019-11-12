@@ -5,6 +5,8 @@ use warnings;
 
 my $subf = 'subs.dat';
 my $reqf = 'req.dat';
+my $template = 'message.html';
+my $linkbase = "http://it.wiedz.net.pl/cgi-bin/sub.cgi";
 
 sub error {
     my ($status, $msg) = @_;
@@ -40,9 +42,7 @@ sub search_email {
             $dat[$i] =~ s/^\s+|\s+$//g;
         }
 
-        print "'$dat[0]' == '$email'\n";
         if($dat[0] eq $email) {
-
             return @dat;
         }
     }
@@ -81,6 +81,20 @@ if(search_email $reqfile, $email) {
 
 my $key = keygen();
 print $reqfile "$email | $name | $key\n";
+
+open(SENDMAIL, "| cat");
+open(TEMPLATE, "<", $template);
+
+my $link = "$linkbase?key=$key";
+
+while (my $l = <TEMPLATE>) {
+    $l =~ s/%NAME%/$name/g;
+    $l =~ s/%LINK%/$link/g;
+    print SENDMAIL $l;
+}
+
+close(TEMPLATE);
+close(SENDMAIL);
 
 close($subfile);
 close($reqfile);
