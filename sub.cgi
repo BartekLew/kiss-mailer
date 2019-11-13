@@ -2,6 +2,8 @@
 
 use strict;
 use warnings;
+use Encode;
+use utf8;
 
 my $subf = 'subs.dat';
 my $reqf = 'req.dat';
@@ -93,20 +95,33 @@ sub remove_key {
     return $result;
 }
 
+sub get_params {
+    my $src = $_[0];
+    $src =~ s/%([[:xdigit:]]{2})/chr(hex $1)/e;
+    chomp $src;
+
+    my %result;
+    for my $keyval (split /&/, $src) {
+        my ($key, $val) = split /=/, $keyval;
+        $result{$key} = $val;
+    }
+
+    return \%result;
+}
+
 my $method = $ENV{"REQUEST_METHOD"};
 error(500, "Wrong method")
     if (!defined $method);
 
 if($method eq "POST") {
-    my $email = lc(<STDIN>);
-    my $name = <STDIN>;
-
-    $email =~ s/^\s+|\s+$//g;
-    $name =~ s/^\s+|\s+$//g;
-
-    unless($email and $name) {
-        error(400, "Missing email or name (needed 2 lines)");
+    my $params = get_params(<STDIN>);
+    
+    unless($params->{"email"} and $params->{"name"}) {
+        error(400, "Missing email or name param");
     }
+
+    my $email = lc($params->{"email"});
+    my $name = $params->{"name"};
 
     unless($email =~ /^[a-zA-Z_0-9.]+@[a-zA-Z_0-9.]+$/) {
         error(400, "$email: wrong email");
@@ -129,7 +144,8 @@ if($method eq "POST") {
 
     print "Status: 200\n\n";
 
-    open(SENDMAIL, "| mail -a 'Content-type:text/html; charset=UTF-8' -r $submail -s '=?utf-8?Q?$subtitle?=' $email");
+    $subtitle = encode("MIME-Q", $subtitle);
+    open(SENDMAIL, "| mail -a 'Content-type:text/html; charset=UTF-8' -r $submail -s '$subtitle' $email");
     open(TEMPLATE, "<", $template);
 
     my $link = "$linkbase?$key";
