@@ -7,6 +7,8 @@ my $subf = 'subs.dat';
 my $reqf = 'req.dat';
 my $template = 'message.html';
 my $linkbase = "http://it.wiedz.net.pl/cgi-bin/sub.cgi";
+my $submail = 'mailer@wiedz.net.pl';
+my $subtitle = 'Proszę, potwierdź subskrybcję.';
 
 sub error {
     my ($status, $msg) = @_;
@@ -126,7 +128,7 @@ if($method eq "POST") {
 
     print "Status: 200\n\n";
 
-    open(SENDMAIL, "| cat");
+    open(SENDMAIL, "| mail -a 'Content-type:text/html; charset=UTF-8' -r $submail -s '=?utf-8?Q?$subtitle?=' $email");
     open(TEMPLATE, "<", $template);
 
     my $link = "$linkbase?$key";
@@ -144,6 +146,7 @@ if($method eq "POST") {
     close($subfile);
     close($reqfile);
 }
+
 elsif($method eq "GET") {
     my $key = $ENV{"QUERY_STRING"};
     error(400, "No key given.") unless (defined($key));
