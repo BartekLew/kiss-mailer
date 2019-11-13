@@ -5,7 +5,8 @@ use warnings;
 
 my $subf = 'subs.dat';
 my $reqf = 'req.dat';
-my $template = 'message.html';
+my $template = 'confirm-msg.html';
+my $succmsg = 'success-msg.html';
 my $linkbase = "http://it.wiedz.net.pl/cgi-bin/sub.cgi";
 my $submail = 'mailer@wiedz.net.pl';
 my $subtitle = 'Proszę, potwierdź subskrybcję.';
@@ -164,6 +165,16 @@ elsif($method eq "GET") {
     close $fd;
 
     print "Status: 200\n\n";
+
+    my $smsg;
+    if(!open($smsg, '<', $succmsg)) {
+        print "Subscription accepted.";
+	exit;
+    }
+
+    while(my $l = <$smsg>) {
+        print $l;
+    }
 }
 else {
     error(400, "Wrong method");
