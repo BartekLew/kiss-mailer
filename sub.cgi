@@ -4,18 +4,24 @@ use strict;
 use warnings;
 use Encode;
 use utf8;
+use DBI;
 
-my $subf = 'subs.dat';
-my $reqf = 'req.dat';
 my $template = 'confirm-msg.html';
 my $succmsg = 'success-msg.html';
-my $linkbase = "http://it.wiedz.net.pl/cgi-bin/sub.cgi";
+my $msmsg = 'mail-sent-msg.html';
+my $linkbase = "http://127.0.0.1/cgi-bin/sub.cgi";
 my $submail = 'mailer@wiedz.net.pl';
 my $subtitle = 'Proszę, potwierdź subskrybcję.';
+my $dbsn = 'DBI:mysql:database=???:host=localhost';
+my $dbusr = '???';
+my $dbpass = '???';
+
+my $db = DBI->connect($dbsn, $dbusr, $dbpass) or error(400, "Internal error: connect db");
 
 sub error {
     my ($status, $msg) = @_;
     print("Status: $status\n\n$msg\n");
+    $db->disconnect();
     exit;
 }
 
@@ -36,63 +42,31 @@ sub keygen {
 }
 
 sub search_email {
-    my ($fd, $email) = @_;
-
-    seek $fd, 0, 0;
-    while (my $l = <$fd>) {
-        my @dat = split /\|/, $l;
-
-        for (my $i = 0; $i < scalar @dat; $i++) {
-            $dat[$i] =~ s/^\s+|\s+$//g;
+    my ($tab, $email) = @_;
+    my $req = $db->prepare("select * from $tab where email=?");
+    $req->execute($email) or error (400, "Internal error: se $tab, $email\n" .
+                                               $db->errstr);
+    while(my $ref = $req->fetchrow_hashref()) {
+        if($ref->{'email'} eq $email) {
+            return $ref;
         }
 
-        if($dat[0] eq $email) {
-            return @dat;
-        }
+        return undef;
+    }
+}
+
+sub remove_key {
+    my ($hash, $tab) = @_;
+    my $req = $db->prepare("select * from $tab where hash=?");
+    $req->execute($hash) or error(400, "Internal error: rk $tab, $hash\n" .
+                                        $db->errstr);
+    if (my $ref = $req->fetchrow_hashref()) {
+        $req = $db->prepare("delete from $tab where hash=?");
+        $req->execute($hash);
+        return $ref;
     }
 
     return undef;
-}
-
-sub parse_record {
-    my @record = split /\|/, $_[0];
-    for (my $i = 0; $i < scalar @record; $i++) {
-        $record[$i] =~ s/^\s+|\s+$//g;
-    }
-    return \@record;
-}
-    
-sub remove_key {
-    my $key = $_[0];
-    my $fnam = $_[1];
-    my $fd;
-
-    open ($fd, '<', $fnam)
-        or error 500, "Can't open $fnam.";
-
-    my @dat;
-    while (my $x = <$fd>) {
-        push @dat, parse_record $x;
-    }
-
-    close $fd;
-
-    my $result;
-
-    open ($fd, '>', $fnam)
-        or error 500, "Can't open $fnam.";
-
-    for my $x (@dat) {
-        if ($x->[2] eq $key) {
-            $result = $x;
-        }
-        else {
-            print $fd "$x->[0] | $x->[1] | $x->[2]\n";
-        }
-    }
-
-    close $fd;
-    return $result;
 }
 
 sub get_params {
@@ -107,6 +81,20 @@ sub get_params {
     }
 
     return \%result;
+}
+
+sub rewrite {
+    print "Status: 200\n\n";
+
+    my $smsg;
+    if(!open($smsg, '<', $_[0])) {
+        print "Subscription accepted.";
+	    exit;
+    }
+
+    while(my $l = <$smsg>) {
+        print $l;
+    }
 }
 
 my $method = $ENV{"REQUEST_METHOD"};
@@ -127,22 +115,19 @@ if($method eq "POST") {
         error(400, "$email: wrong email");
     }
 
-    open(my $subfile, '+>>', $subf)
-        and open(my $reqfile, '+>>', $reqf)
-        or error(500, "Can't touch either: $subf $reqf.");
-
-    if(search_email $subfile, $email) {
+    if(search_email("subs", $email)) {
         error(400, "$email: already subscribing!");
     }
 
-    if(search_email $reqfile, $email) {
+    if(search_email("subreq", $email)) {
         error(400, "$email: requested subscribtion!");
     }
 
     my $key = keygen();
-    print $reqfile "$email | $name | $key\n";
+    my $req = $db->prepare("insert into subreq (email, name, hash) values(?,?,?)");
+    $req->execute($email, $name, $key) or error(400, "Internal error, try again");
 
-    print "Status: 200\n\n";
+    rewrite $msmsg;
 
     $subtitle = encode("MIME-Q", $subtitle);
     open(SENDMAIL, "| mail -a 'Content-type:text/html; charset=UTF-8' -r $submail -s '$subtitle' $email");
@@ -159,40 +144,24 @@ if($method eq "POST") {
 
     close(TEMPLATE);
     close(SENDMAIL);
-
-    close($subfile);
-    close($reqfile);
 }
 
 elsif($method eq "GET") {
     my $key = $ENV{"QUERY_STRING"};
     error(400, "No key given.") unless (defined($key));
 
-    $key = remove_key $key, $reqf;
+    $key = remove_key $key, "subreq";
     
     error(400, "Key not found")
         unless (defined $key);
 
-    open (my $fd, ">>", $subf)
-        or error(500, "Can't open $subf");
+    my $req = $db->prepare("insert into subs (email,name) values(?,?)");
+    $req->execute($key->{"email"}, $key->{"name"});
 
-    print $fd "$key->[0] | $key->[1]\n";
-
-    close $fd;
-
-    print "Status: 200\n\n";
-
-    my $smsg;
-    if(!open($smsg, '<', $succmsg)) {
-        print "Subscription accepted.";
-	exit;
-    }
-
-    while(my $l = <$smsg>) {
-        print $l;
-    }
+    rewrite $succmsg;
 }
 else {
     error(400, "Wrong method");
 }
 
+$db->disconnect();
