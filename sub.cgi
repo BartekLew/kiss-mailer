@@ -7,11 +7,14 @@ use utf8;
 use DBI;
 
 my $template = 'confirm-msg.html';
+my $notiftemp = 'sub-notif.html';
 my $succmsg = 'success-msg.html';
 my $msmsg = 'mail-sent-msg.html';
-my $linkbase = "http://127.0.0.1/cgi-bin/sub.cgi";
-my $submail = 'mailer@wiedz.net.pl';
+my $linkbase = "http://???/cgi-bin/sub.cgi";
+my $submail = '???';
+my $admail = '???';
 my $subtitle = 'Proszę, potwierdź subskrybcję.';
+my $notiftitle = 'Masz nowego subskrybenta.';
 my $dbsn = 'DBI:mysql:database=???:host=localhost';
 my $dbusr = '???';
 my $dbpass = '???';
@@ -71,7 +74,8 @@ sub remove_key {
 
 sub get_params {
     my $src = $_[0];
-    $src =~ s/%([[:xdigit:]]{2})/chr(hex $1)/e;
+    $src =~ s/%([[:xdigit:]]{2})/chr(hex $1)/ge;
+    $src =~ s/\+/ /g;
     chomp $src;
 
     my %result;
@@ -97,6 +101,21 @@ sub rewrite {
     }
 }
 
+sub sendmail {
+    my ($submail, $email, $subtitle, $template, $subsf) = @_, 
+    $subtitle = encode("MIME-Q", $subtitle);
+    open(SENDMAIL, "| mail -a 'Content-type:text/html; charset=UTF-8' -r $submail -s '$subtitle' $email");
+    open(TEMPLATE, "<", $template);
+
+    while (my $l = <TEMPLATE>) {
+        print SENDMAIL &$subsf($l);
+    }
+
+
+    close(TEMPLATE);
+    close(SENDMAIL);
+}
+
 my $method = $ENV{"REQUEST_METHOD"};
 error(500, "Wrong method")
     if (!defined $method);
@@ -110,6 +129,7 @@ if($method eq "POST") {
 
     my $email = lc($params->{"email"});
     my $name = $params->{"name"};
+    my $message = $params->{"msg"};
 
     unless($email =~ /^[a-zA-Z_0-9.]+@[a-zA-Z_0-9.]+$/) {
         error(400, "$email: wrong email");
@@ -129,23 +149,27 @@ if($method eq "POST") {
 
     rewrite $msmsg;
 
-    $subtitle = encode("MIME-Q", $subtitle);
-    open(SENDMAIL, "| mail -a 'Content-type:text/html; charset=UTF-8' -r $submail -s '$subtitle' $email");
-    open(TEMPLATE, "<", $template);
-
     my $link = "$linkbase?$key";
 
-    while (my $l = <TEMPLATE>) {
-        $l =~ s/%NAME%/$name/g;
-        $l =~ s/%LINK%/$link/g;
-        print SENDMAIL $l;
-    }
+    sendmail($submail, $email, $subtitle, $template, 
+        sub {
+            my ($l) = @_;
+            $l =~ s/%NAME%/$name/g;
+            $l =~ s/%LINK%/$link/g;
+            return $l;
+        }
+    );
 
-
-    close(TEMPLATE);
-    close(SENDMAIL);
+    sendmail($submail, $admail, $notiftitle, $notiftemp,
+        sub {
+            my ($l) = @_;
+            $l =~ s/%NAME%/$name/g;
+            $l =~ s/%EMAIL%/$email/g;
+	    $l =~ s/%MSG%/$message/g;
+            return $l;
+        }
+    );
 }
-
 elsif($method eq "GET") {
     my $key = $ENV{"QUERY_STRING"};
     error(400, "No key given.") unless (defined($key));
